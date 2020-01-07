@@ -34,7 +34,9 @@ appended_data = []
 seasonal_peak = pd.DataFrame(columns=('station_id', 'peakT', 'peakTd'))
 
 # Load in data from monsoon region to check what scatter plot looks like after removing seasonal cycle
-for id_counter, this_id in enumerate(metadata['station_id'].values[:3]):
+for id_counter, this_id in enumerate(metadata['station_id'].values):
+    print('%i/%' % (id_counter, len(metadata)))
+
     metadata_idx = metadata['station_id'] == this_id
 
     lat = metadata.loc[metadata_idx, 'lat'].values[0]
