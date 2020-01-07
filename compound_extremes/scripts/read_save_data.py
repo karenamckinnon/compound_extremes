@@ -32,7 +32,7 @@ station_stats = pd.DataFrame(columns=('station_id', 'peakT', 'peakTd', 'rho', 'r
 
 # Load in data from monsoon region to check what scatter plot looks like after removing seasonal cycle
 for id_counter, this_id in enumerate(metadata['station_id'].values):
-    print('%i/%' % (id_counter, len(metadata)))
+    print('%i/%i' % (id_counter, len(metadata)))
 
     metadata_idx = metadata['station_id'] == this_id
 
