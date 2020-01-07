@@ -1,12 +1,9 @@
-"""
-Read in all GSOD data, perform some QC, pull out warm season, and save all to csv.
-"""
-
-
 import numpy as np
 import pandas as pd
 import ctypes
 from compound_extremes import utils
+from helpful_utilities.general import fit_OLS
+
 
 # Params and dirs
 datadir = '/home/mckinnon/bucket/gsod'
@@ -31,7 +28,7 @@ window_length = 90
 
 # Initialize data frames
 appended_data = []
-seasonal_peak = pd.DataFrame(columns=('station_id', 'peakT', 'peakTd'))
+station_stats = pd.DataFrame(columns=('station_id', 'peakT', 'peakTd', 'rho', 'rho_detrended'))
 
 # Load in data from monsoon region to check what scatter plot looks like after removing seasonal cycle
 for id_counter, this_id in enumerate(metadata['station_id'].values):
@@ -81,15 +78,13 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
     tmp = np.convolve(np.ones(window_length,), double, mode='valid')
     peak_doy_DP = (np.argmax(tmp) + 1) % 365, (np.argmax(tmp) + window_length + 1) % 365
 
-    seasonal_peak.loc[id_counter] = (this_id, peak_doy_T, peak_doy_DP)
-
     # Create new dataframe to store QC values at all days (fill in with NaNs when missing)
     full_time_vec = pd.date_range(start='%04d/1/1' % start_year, end='%04d/12/31' % end_year, freq='D')
     full_doy = np.array([d.timetuple().tm_yday for d in full_time_vec])
     if peak_doy_T[1] > peak_doy_T[0]:  # boreal summer
-        idx_seasonal = (full_doy >= peak_doy_T[0]) & (full_doy <= peak_doy_T[1])
+        idx_seasonal = (full_doy >= peak_doy_T[0]) & (full_doy < peak_doy_T[1])
     else:
-        idx_seasonal = (full_doy <= peak_doy_T[0]) | (full_doy >= peak_doy_T[1])
+        idx_seasonal = (full_doy <= peak_doy_T[0]) | (full_doy > peak_doy_T[1])
 
     this_df = pd.DataFrame(data={'date': full_time_vec[idx_seasonal],
                                  'doy': full_doy[idx_seasonal],
@@ -141,8 +136,28 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
     else:  # add to dataframe
         appended_data.append(this_df)
 
+        # Calculate and save some stats for the station
+
+        # Calculate raw correlation
+        missing_rows = np.isnan(this_df['temp']) | np.isnan(this_df['dewp'])
+        rho = np.corrcoef(this_df.loc[~missing_rows, 'temp'], this_df.loc[~missing_rows, 'dewp'])[0, 1]
+
+        # Calculate detrended correlation
+        time_since = pd.to_datetime(this_df.loc[~missing_rows, 'date']) - pd.datetime(start_year, 1, 1)
+        time_index = [t.days for t in time_since]
+        time_index -= np.mean(time_index).astype(int)
+
+        beta, yhat = fit_OLS(time_index, this_df.loc[~missing_rows, 'temp'])
+        detrendedT = this_df.loc[~missing_rows, 'temp'] - yhat
+
+        beta, yhat = fit_OLS(time_index, this_df.loc[~missing_rows, 'dewp'])
+        detrendedDP = this_df.loc[~missing_rows, 'dewp'] - yhat
+
+        rho_detrended = np.corrcoef(detrendedT, detrendedDP)[0, 1]
+        station_stats.loc[id_counter] = (this_id, peak_doy_T, peak_doy_DP, rho, rho_detrended)
+
 appended_data = pd.concat(appended_data, ignore_index=True, sort=False)
 
 # Save to csv
 appended_data.to_csv('%s/%s/all_stations.csv' % (datadir, query_hash))
-seasonal_peak.to_csv('%s/%s/seasonal_cycle_peaks.csv' % (datadir, query_hash))
+station_stats.to_csv('%s/%s/station_stats.csv' % (datadir, query_hash))
