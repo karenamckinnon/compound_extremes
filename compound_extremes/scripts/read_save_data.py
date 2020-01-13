@@ -42,7 +42,12 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
     country = metadata.loc[metadata_idx, 'ctry'].values[0]
 
     f = '%s/%s/%s.csv' % (datadir, query_hash, this_id)
-    df = pd.read_csv(f)
+
+    try:
+        df = pd.read_csv(f)
+    except Exception as e:
+        print(e)
+        continue
 
     # Do initial quality control
 
@@ -56,7 +61,10 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
     remove_idx = remove_idx | np.isnan(df['temp']) | np.isnan(df['dewp'])
 
     # (4) Drop leap days
-    remove_idx = remove_idx | ['02-29' in d for d in df['date']]
+    time_dt = pd.to_datetime(df['date'], format='%Y-%m-%d')
+    time_doy = np.array([d.timetuple().tm_yday for d in time_dt])
+    remove_idx = remove_idx | (time_doy == 366)
+    # remove_idx = remove_idx | ['02-29' in d for d in df['date']]
 
     df = df.loc[~remove_idx]
     df = df.reset_index()
@@ -64,6 +72,11 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
     # Estimate seasonal cycle in temperature and dewpoint
     dates_pd = [pd.datetime.strptime(df.loc[kk, 'date'], '%Y-%m-%d') for kk in range(len(df))]
     doy = np.array([d.timetuple().tm_yday for d in dates_pd])
+
+    # Check that we actually have data across the year
+    if len(np.unique(doy)) < 365:
+        print('Insufficient data: missing at least one entry for each doy')
+        continue
 
     seasonalT, residualT, T_ann = utils.fit_seasonal_cycle(doy, df['temp'].values)
     seasonalDP, residualDP, DP_ann = utils.fit_seasonal_cycle(doy, df['dewp'].values)
@@ -81,10 +94,16 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
     # Create new dataframe to store QC values at all days (fill in with NaNs when missing)
     full_time_vec = pd.date_range(start='%04d/1/1' % start_year, end='%04d/12/31' % end_year, freq='D')
     full_doy = np.array([d.timetuple().tm_yday for d in full_time_vec])
+
+    # Remove the 366th days
+    remove_idx = full_doy == 366
+    full_time_vec = full_time_vec[~remove_idx]
+    full_doy = full_doy[~remove_idx]
+
     if peak_doy_T[1] > peak_doy_T[0]:  # boreal summer
         idx_seasonal = (full_doy >= peak_doy_T[0]) & (full_doy < peak_doy_T[1])
     else:
-        idx_seasonal = (full_doy <= peak_doy_T[0]) | (full_doy > peak_doy_T[1])
+        idx_seasonal = (full_doy >= peak_doy_T[0]) | (full_doy < peak_doy_T[1])
 
     this_df = pd.DataFrame(data={'date': full_time_vec[idx_seasonal],
                                  'doy': full_doy[idx_seasonal],
@@ -104,9 +123,9 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
 
     doy_ann = np.arange(1, 366)
     if peak_doy_T[1] > peak_doy_T[0]:  # boreal summer
-        idx_seasonal = (doy_ann >= peak_doy_T[0]) & (doy_ann <= peak_doy_T[1])
+        idx_seasonal = (doy_ann >= peak_doy_T[0]) & (doy_ann < peak_doy_T[1])
     else:
-        idx_seasonal = (doy_ann <= peak_doy_T[0]) | (doy_ann >= peak_doy_T[1])
+        idx_seasonal = (doy_ann >= peak_doy_T[0]) | (doy_ann < peak_doy_T[1])
     temp_clim = T_ann[idx_seasonal]
     dewp_clim = DP_ann[idx_seasonal]
 
@@ -131,6 +150,7 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
     frac_missing = np.array([np.sum(np.isnan(this_df.loc[yrs == yy, 'temp'])) /
                              np.sum(yrs == yy) for yy in np.unique(yrs)])
     frac_lt_80 = np.sum(frac_missing > 0.2)/len(frac_missing)
+
     if frac_lt_80 > 0.2:
         continue
     else:  # add to dataframe
@@ -155,6 +175,14 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
 
         rho_detrended = np.corrcoef(detrendedT, detrendedDP)[0, 1]
         station_stats.loc[id_counter] = (this_id, peak_doy_T, peak_doy_DP, rho, rho_detrended)
+
+    # Save along the way
+    if id_counter % 100 == 0:
+        appended_tmp = pd.concat(appended_data, ignore_index=True, sort=False)
+        # Save to csv
+        appended_tmp.to_csv('%s/%s/all_stations_TMP%04d.csv' % (datadir, query_hash, id_counter))
+        station_stats.to_csv('%s/%s/station_stats_TMP%04d.csv' % (datadir, query_hash, id_counter))
+        del appended_tmp
 
 appended_data = pd.concat(appended_data, ignore_index=True, sort=False)
 
