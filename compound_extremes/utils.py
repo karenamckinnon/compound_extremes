@@ -23,7 +23,8 @@ def fit_seasonal_cycle(doy, data, nbases=5):
         The 365-day version of the seasonal cycle
     """
 
-    data -= np.mean(data)
+    mu = np.mean(data)
+    data -= mu
 
     t_basis = (doy - 0.5)/365
     ann_basis = (np.arange(1, 366) - 0.5)/365
@@ -39,6 +40,6 @@ def fit_seasonal_cycle(doy, data, nbases=5):
     rec = np.real(np.dot(np.conj(coeff), bases))
     residual = data - rec
 
-    rec_ann = np.real(np.dot(np.conj(coeff), bases_ann))
+    rec_ann = np.real(np.dot(np.conj(coeff), bases_ann)) + mu  # add mean value back into climatology
 
     return rec, residual, rec_ann
