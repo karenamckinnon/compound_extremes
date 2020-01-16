@@ -28,7 +28,7 @@ window_length = 90
 
 # Initialize data frames
 appended_data = []
-station_stats = pd.DataFrame(columns=('station_id', 'peakT', 'peakTd', 'rho', 'rho_detrended'))
+station_stats = pd.DataFrame(columns=('station_id', 'lat', 'lon', 'peakT', 'peakTd', 'rho', 'rho_detrended'))
 
 # Load in data from monsoon region to check what scatter plot looks like after removing seasonal cycle
 for id_counter, this_id in enumerate(metadata['station_id'].values):
@@ -78,8 +78,9 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
         print('Insufficient data: missing at least one entry for each doy')
         continue
 
-    seasonalT, residualT, T_ann = utils.fit_seasonal_cycle(doy, df['temp'].values)
-    seasonalDP, residualDP, DP_ann = utils.fit_seasonal_cycle(doy, df['dewp'].values)
+    # use copy to avoid de-meaning our values
+    seasonalT, residualT, T_ann = utils.fit_seasonal_cycle(doy, df['temp'].values.copy())
+    seasonalDP, residualDP, DP_ann = utils.fit_seasonal_cycle(doy, df['dewp'].values.copy())
 
     # Find peaks for temperature and dewpoint
     # argmax finds index, we want day of year, so add 1
@@ -158,23 +159,25 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
 
         # Calculate and save some stats for the station
 
-        # Calculate raw correlation
+        # Calculate raw correlation (after removing seasonal cycle)
         missing_rows = np.isnan(this_df['temp']) | np.isnan(this_df['dewp'])
-        rho = np.corrcoef(this_df.loc[~missing_rows, 'temp'], this_df.loc[~missing_rows, 'dewp'])[0, 1]
+        x = this_df.loc[~missing_rows, 'temp'] - this_df.loc[~missing_rows, 'temp_clim']
+        y = this_df.loc[~missing_rows, 'dewp'] - this_df.loc[~missing_rows, 'dewp_clim']
+        rho = np.corrcoef(x, y)[0, 1]
 
         # Calculate detrended correlation
         time_since = pd.to_datetime(this_df.loc[~missing_rows, 'date']) - pd.datetime(start_year, 1, 1)
         time_index = [t.days for t in time_since]
         time_index -= np.mean(time_index).astype(int)
 
-        beta, yhat = fit_OLS(time_index, this_df.loc[~missing_rows, 'temp'])
-        detrendedT = this_df.loc[~missing_rows, 'temp'] - yhat
+        beta, yhat = fit_OLS(time_index, x)
+        detrendedT = x - yhat
 
-        beta, yhat = fit_OLS(time_index, this_df.loc[~missing_rows, 'dewp'])
-        detrendedDP = this_df.loc[~missing_rows, 'dewp'] - yhat
+        beta, yhat = fit_OLS(time_index, y)
+        detrendedDP = y - yhat
 
         rho_detrended = np.corrcoef(detrendedT, detrendedDP)[0, 1]
-        station_stats.loc[id_counter] = (this_id, peak_doy_T, peak_doy_DP, rho, rho_detrended)
+        station_stats.loc[id_counter] = (this_id, lat, lon, peak_doy_T, peak_doy_DP, rho, rho_detrended)
 
     # Save along the way
     if id_counter % 100 == 0:
