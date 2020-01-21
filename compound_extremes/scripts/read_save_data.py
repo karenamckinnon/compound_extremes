@@ -24,13 +24,12 @@ query_hash = str(ctypes.c_size_t(hash(hashable)).value)  # ensures positive valu
 metadata = pd.read_csv('%s/%s/new_metadata.csv' % (datadir, query_hash))
 
 paramdir = '%s/%s/params' % (datadir, query_hash)
-window_length = 90
+window_length = 60
 
 # Initialize data frames
 appended_data = []
-station_stats = pd.DataFrame(columns=('station_id', 'lat', 'lon', 'peakT', 'peakTd', 'rho', 'rho_detrended'))
+station_stats = pd.DataFrame(columns=('station_id', 'lat', 'lon', 'peakT', 'peakTd', 'rho', 'rho_detrended', 'DPD'))
 
-# Load in data from monsoon region to check what scatter plot looks like after removing seasonal cycle
 for id_counter, this_id in enumerate(metadata['station_id'].values):
     print('%i/%i' % (id_counter, len(metadata)))
 
@@ -177,7 +176,13 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
         detrendedDP = y - yhat
 
         rho_detrended = np.corrcoef(detrendedT, detrendedDP)[0, 1]
-        station_stats.loc[id_counter] = (this_id, lat, lon, peak_doy_T, peak_doy_DP, rho, rho_detrended)
+
+        # Calculate average dew point depression
+        x = this_df.loc[~missing_rows, 'temp']
+        y = this_df.loc[~missing_rows, 'dewp']
+        DPD = np.mean(x - y)
+
+        station_stats.loc[id_counter] = (this_id, lat, lon, peak_doy_T, peak_doy_DP, rho, rho_detrended, DPD)
 
     # Save along the way
     if id_counter % 100 == 0:
@@ -190,5 +195,5 @@ for id_counter, this_id in enumerate(metadata['station_id'].values):
 appended_data = pd.concat(appended_data, ignore_index=True, sort=False)
 
 # Save to csv
-appended_data.to_csv('%s/%s/all_stations.csv' % (datadir, query_hash))
-station_stats.to_csv('%s/%s/station_stats.csv' % (datadir, query_hash))
+appended_data.to_csv('%s/%s/all_stations_%02dday-season.csv' % (datadir, query_hash, window_length))
+station_stats.to_csv('%s/%s/station_stats_%02dday-season.csv' % (datadir, query_hash, window_length))
