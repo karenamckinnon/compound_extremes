@@ -143,7 +143,7 @@ def main(start_index, nstations, nboot):
 
         BETA[station_counter, ...] = beta
         BETA_BOOT[station_counter, ...] = beta_boot
-        np.savez(savename, ids_to_run=ids_to_run, BETA=BETA, BETA_BOOT=BETA_BOOT)
+    np.savez(savename, ids_to_run=ids_to_run, BETA=BETA, BETA_BOOT=BETA_BOOT)
 
 
 if __name__ == '__main__':
