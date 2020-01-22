@@ -1,12 +1,10 @@
 import numpy as np
 import xarray as xr
 import pandas as pd
-import statsmodels.formula.api as smf
+from humidity_variability.models import fit_linear_QR
 import ctypes
 from glob import glob
-import warnings
 import argparse
-warnings.simplefilter(action='ignore', category=FutureWarning)
 
 
 def main(start_index, nstations, nboot):
@@ -23,6 +21,8 @@ def main(start_index, nstations, nboot):
     hashable = tuple((tuple(search_query.keys()), tuple(search_query.values()), expand_data))
     query_hash = str(ctypes.c_size_t(hash(hashable)).value)  # ensures positive value
     output_dir = '%s/%s/qr' % (datadir, query_hash)
+
+    constraint = 'None'
 
     qs = 0.05, 0.5, 0.95
 
@@ -92,7 +92,7 @@ def main(start_index, nstations, nboot):
         this_data['dewp_anom'] = this_data['dewp'] - this_data['dewp_clim']
 
         # Convert to Celsius
-        this_data['dewp_anom'] = 5/9*(this_data['dewp_anom'])  # convert to celsius
+        this_data['dewp_anom'] *= 5/9
 
         # cut off anything outside of our period of interest
         idx_keep = (this_data['year'] >= start_year) & (this_data['year'] <= end_year).values
@@ -105,29 +105,41 @@ def main(start_index, nstations, nboot):
         beta = np.empty((len(qs), 2))
         beta_boot = np.empty((len(qs), nboot, 2))
         for ct, q in enumerate(qs):
-            mod = smf.quantreg('dewp_anom ~ gmt', this_data)
-            res = mod.fit(q=q, max_iter=5000)
-            beta[ct, 0] = res.params.Intercept
-            beta[ct, 1] = res.params.gmt
 
-            residuals = this_data['dewp_anom'].values - res.fittedvalues
+            x1 = this_data['gmt'].values
+            x1 -= np.mean(x1)
+            X = np.vstack((np.ones(len(x1)), x1)).T
+            data = this_data['dewp_anom'].values
+
+            this_beta, yhat = fit_linear_QR(X, data, q, constraint, 'None')
+            beta[ct, :] = this_beta
+            residuals = data - yhat
+
             for kk in range(nboot):
                 # Resample in yearly blocks
                 new_years = np.random.choice(unique_years, len(unique_years))
                 df_list = []
                 for year_counter, yy in enumerate(new_years):
+                    # use the original year for yhat
                     original_year = unique_years[year_counter]
-                    fitted_val = res.fittedvalues[this_data['year'] == original_year].values[0]
+                    # yhat is the same for a given year (no within year variation)
+                    fitted_val = yhat[this_data['year'] == original_year][0]
+                    # grab the residual from a different year
                     residual_sample = residuals[this_data['year'] == yy]
+                    # but the gmt from the original year
                     this_gmt = this_data.loc[this_data['year'] == original_year, 'gmt'].values[0]
                     new_df = pd.DataFrame(data={'gmt': this_gmt*np.ones(len(residual_sample)),
                                                 'dewp_anom_sample': fitted_val + residual_sample})
                     df_list.append(new_df)
                 resampled_df = pd.concat(df_list)
-                mod2 = smf.quantreg('dewp_anom_sample ~ gmt', resampled_df)
-                res2 = mod2.fit(q=q, max_iter=5000)
-                beta_boot[ct, kk, 0] = res2.params.Intercept
-                beta_boot[ct, kk, 1] = res2.params.gmt
+
+                x1 = resampled_df['gmt'].values
+                x1 -= np.mean(x1)
+                X = np.vstack((np.ones(len(x1)), x1)).T
+                data = resampled_df['dewp_anom_sample'].values
+
+                this_beta, _ = fit_linear_QR(X, data, q, constraint, 'None')
+                beta_boot[ct, kk, :] = this_beta
 
         BETA[station_counter, ...] = beta
         BETA_BOOT[station_counter, ...] = beta_boot
