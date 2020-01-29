@@ -7,10 +7,10 @@ from glob import glob
 import argparse
 
 
-def main(start_index, nstations, nboot):
+def main(start_index, nstations, nboot, trend_type, base_dir):
     # Params and dirs
-    datadir = '/home/mckinnon/bucket/gsod'
-    cvdp_loc = '/home/mckinnon/bucket/CVDP'
+    datadir = '%s/gsod' % base_dir
+    cvdp_loc = '%s/CVDP' % base_dir
 
     start_year = 1973
     end_year = 2018
@@ -20,6 +20,7 @@ def main(start_index, nstations, nboot):
 
     hashable = tuple((tuple(search_query.keys()), tuple(search_query.values()), expand_data))
     query_hash = str(ctypes.c_size_t(hash(hashable)).value)  # ensures positive value
+    query_hash = '2506838728791974695'
     output_dir = '%s/%s/qr' % (datadir, query_hash)
 
     constraint = 'None'
@@ -27,7 +28,7 @@ def main(start_index, nstations, nboot):
     qs = 0.05, 0.5, 0.95
 
     # Load station data
-    fname_alldata = '%s/%s/all_stations.csv' % (datadir, query_hash)
+    fname_alldata = '%s/%s/all_stations_60day-season.csv' % (datadir, query_hash)
 
     # Annual mean is removed from temperature and dewpoint
     # Units are still F
@@ -52,7 +53,7 @@ def main(start_index, nstations, nboot):
     delta = (gm_em_ann.values[-1] - gm_em_ann.values[-5])/5
 
     ids_to_run = station_ids[start_index:(start_index + nstations)]
-    savename = '%s/qr_results_%03d.npz' % (output_dir, start_index)
+    savename = '%s/qr_results_%s_60day-season_%04d.npz' % (output_dir, trend_type, start_index)
 
     BETA = np.empty((len(ids_to_run), len(qs), 2))
     BETA_BOOT = np.empty((len(ids_to_run), len(qs), nboot, 2))
@@ -101,6 +102,13 @@ def main(start_index, nstations, nboot):
         # drop missing
         this_data.dropna(subset=['dewp_anom'], inplace=True)
 
+        if trend_type == 'intra':
+            def demedian(x):
+                return (x - x.median())
+
+            anomaly = this_data.groupby(this_data.year).transform(demedian)
+            this_data = this_data.assign(dewp_anom=anomaly['dewp_anom'].values)
+
         unique_years = np.unique(this_data['year'].values)
         beta = np.empty((len(qs), 2))
         beta_boot = np.empty((len(qs), nboot, 2))
@@ -143,7 +151,7 @@ def main(start_index, nstations, nboot):
 
         BETA[station_counter, ...] = beta
         BETA_BOOT[station_counter, ...] = beta_boot
-        np.savez(savename, ids_to_run=ids_to_run, BETA=BETA, BETA_BOOT=BETA_BOOT)
+    np.savez(savename, ids_to_run=ids_to_run, BETA=BETA, BETA_BOOT=BETA_BOOT)
 
 
 if __name__ == '__main__':
@@ -151,7 +159,9 @@ if __name__ == '__main__':
     parser.add_argument('start_index', type=int, help='Which index among stations to start at')
     parser.add_argument('nstations', type=int, help='How many stations to analyze on this machine')
     parser.add_argument('nboot', type=int, help='How many bootstrap samples to do')
+    parser.add_argument('trend_type', type=str, help='Calculate full or intra QR?')
+    parser.add_argument('base_dir', type=str, help='Base directory containing data files')
 
     args = parser.parse_args()
 
-    main(args.start_index, args.nstations, args.nboot)
+    main(args.start_index, args.nstations, args.nboot, args.trend_type, args.base_dir)
