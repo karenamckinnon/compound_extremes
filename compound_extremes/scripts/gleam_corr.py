@@ -51,6 +51,7 @@ lags = np.array([21, 14, 7, 0])
 appended_data = []
 for station_count, this_id in enumerate(station_ids):
     print('%i/%i' % (station_count, len(station_ids)))
+
     this_data0 = station_data[station_data['station_id'] == this_id]
     this_lat = metadata.loc[metadata['station_id'] == this_id, 'lat']
     this_lon = metadata.loc[metadata['station_id'] == this_id, 'lon']
@@ -66,7 +67,7 @@ for station_count, this_id in enumerate(station_ids):
     lat_idx = np.where((this_lat.values > sm_lat_bnds[1, :]) & (this_lat.values <= sm_lat_bnds[0, :]))[0][0]
     lon_idx = np.where((this_lon.values > sm_lon_bnds[0, :]) & (this_lon.values <= sm_lon_bnds[1, :]))[0][0]
 
-    if np.isnan(ds.SMsurf[0, lon_idx, lat_idx].values):
+    if np.isnan(ds.SMsurf[:, lon_idx, lat_idx].values).any():
         continue
 
     # Remove seasonal climatology
@@ -103,12 +104,13 @@ for station_count, this_id in enumerate(station_ids):
 
         sm_df = sm_df.loc[idx_seasonal, :]
 
-        # Subselect dew point to soil moisture years
+        # For cases where summer season spans years, assign everything to the later year
         yrs = np.array([int(this_data['date'].values[ct].split('-')[0]) for ct in range(len(this_data))])
         this_data = this_data.assign(year=yrs)
+
+        # Subselect dew point to soil moisture years
         this_data = this_data[(this_data['year'] >= sm_years[0]) & (this_data['year'] <= sm_years[1])]
 
-        # For cases where summer season spans years, assign everything to the later year
         if doy2_dp < doy1_dp:
             this_data.loc[this_data['doy'] <= doy2_dp, 'year'] += 1
         if doy2 < doy1:  # austral summer
@@ -126,16 +128,16 @@ for station_count, this_id in enumerate(station_ids):
         # Raw
         rho_raw = np.corrcoef(sm_df['SM_anoms'].values, this_data['dewp_anoms'].values)[0, 1]
 
-        # Between seasonal medians
-        sm_ann = sm_df.groupby('year').median()
-        dewp_ann = this_data.groupby('year').median()
-
-        rho_ann = np.corrcoef(sm_ann['SM_anoms'].values, dewp_ann['dewp_anoms'].values)[0, 1]
-
+        # Anomalies
         sm_anomaly = sm_df.groupby(sm_df.year).transform(demedian)
         dewp_anomaly = this_data.groupby(this_data.year).transform(demedian)
-
         rho_anoms = np.corrcoef(sm_anomaly['SM_anoms'].values, dewp_anomaly['dewp_anoms'].values)[0, 1]
+
+        # Between seasonal medians
+        sm_df = sm_df[(sm_df['year'] >= sm_years[0]) & (sm_df['year'] <= sm_years[1])]
+        sm_ann = sm_df.groupby('year').median()
+        dewp_ann = this_data.groupby('year').median()
+        rho_ann = np.corrcoef(sm_ann['SM_anoms'].values, dewp_ann['dewp_anoms'].values)[0, 1]
 
         # save
         this_df = pd.DataFrame(data={'station_id': this_id,
