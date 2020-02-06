@@ -137,6 +137,11 @@ for station_count, this_id in enumerate(station_ids):
         sm_df = sm_df[(sm_df['year'] >= sm_years[0]) & (sm_df['year'] <= sm_years[1])]
         sm_ann = sm_df.groupby('year').median()
         dewp_ann = this_data.groupby('year').median()
+
+        # Make sure that the years match
+        match_years = np.intersect1d(sm_ann.index, dewp_ann.index)
+        sm_ann = sm_ann.loc[np.isin(sm_ann.index.values, match_years), :]
+        dewp_ann = dewp_ann.loc[np.isin(dewp_ann.index.values, match_years), :]
         rho_ann = np.corrcoef(sm_ann['SM_anoms'].values, dewp_ann['dewp_anoms'].values)[0, 1]
 
         # save
@@ -149,6 +154,12 @@ for station_count, this_id in enumerate(station_ids):
                                      'rho_anoms': rho_anoms})
 
         appended_data.append(this_df)
+
+    if station_count % 100 == 0:
+        appended_tmp = pd.concat(appended_data, ignore_index=True, sort=False)
+        # Save to csv
+        appended_tmp.to_csv('%s/gleam_dewp_corr_lags_TMP%04d.csv' % (savedir, station_count))
+        del appended_tmp
 
 appended_data = pd.concat(appended_data, ignore_index=True, sort=False)
 
