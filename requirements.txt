@@ -1,0 +1,6 @@
+geopandas==0.8.0
+pandas==0.23.4
+numpy==1.15.1
+humidity_variability.egg==info
+xarray==0.12.1
+helpful_utilities.egg==info
