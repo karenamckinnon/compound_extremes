@@ -63,21 +63,11 @@ if __name__ == '__main__':
         return np.exp(loglam)
 
     # Loop through stations
-<<<<<<< HEAD
-    for _, row in metadata[(metadata['state']!='AK') & (metadata['state']!='HI')].iterrows():  # .iloc[args.id_start:(args.id_start + args.n_id), :].iterrows():
-        this_id = row['station_id']
-        f = '%s/%s.csv' % (args.datadir, this_id)
-        df = pd.read_csv(f)
-
-        print(this_id)
-
-=======
     for _, row in metadata.iloc[args.id_start:(args.id_start + args.n_id), :].iterrows():
         this_id = row['station_id']
         f = '%s/%s.csv' % (args.datadir, this_id)
         df = pd.read_csv(f)
         print(this_id)
->>>>>>> updated to add bootstrap
         savename = '%s/US_extremes_params_%i_%i_%s.npz' % (paramdir, start_year, end_year, this_id)
 
         # Perform data QC
