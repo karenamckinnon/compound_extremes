@@ -50,8 +50,6 @@ lags = np.array([21, 14, 7, 0])
 
 appended_data = []
 for station_count, this_id in enumerate(station_ids):
-    if station_count <= 1900:  # TMP, already have this saved
-        continue
     print('%i/%i' % (station_count, len(station_ids)))
 
     this_data0 = station_data[station_data['station_id'] == this_id]

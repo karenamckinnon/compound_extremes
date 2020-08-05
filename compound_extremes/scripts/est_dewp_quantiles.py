@@ -4,6 +4,7 @@ Calculate trends in given percentiles of dew point conditional on temperature.
 Both temperature and dew point are daily average values from GSOD data.
 """
 
+import geopandas
 import numpy as np
 import pandas as pd
 from humidity_variability.utils import add_date_columns, jitter, add_GMT
@@ -13,7 +14,6 @@ from compound_extremes.utils import fit_seasonal_cycle
 import os
 from subprocess import check_call
 import argparse
-import geopandas
 
 
 if __name__ == '__main__':
@@ -46,12 +46,14 @@ if __name__ == '__main__':
         cmd = 'mkdir %s/boot' % paramdir
         check_call(cmd.split())
 
-    # Interior west domain for bootstrapping
-    # gjson_fname = '/home/mckinnon/projects/compound_extremes/compound_extremes/shapefiles/interior_west.json'
+    # Interior west domain for bootstrapping (lat, lon)
     interior_west = geopandas.read_file(args.gjson_fname)
-    interior_west.crs = 'epsg:3857'  # original projection
-    interior_west['geometry'] = interior_west['geometry'].to_crs(epsg=4326)
-    interior_west.crs = 'epsg:4326'  # reproject into lat/lon
+
+    # Only calculate trends in stations in west
+    gdf = geopandas.GeoDataFrame(geometry=geopandas.points_from_xy(metadata.lon, metadata.lat))
+    gdf.crs = 'epsg:4326'  # set projection to lat/lon
+    within_ROI = gdf.within(interior_west['geometry'].loc[0]).values
+    metadata = metadata.iloc[within_ROI].reset_index()
 
     def return_lambda(x_data):
         """Model for lambda from JABES paper"""
@@ -61,6 +63,7 @@ if __name__ == '__main__':
         return np.exp(loglam)
 
     # Loop through stations
+<<<<<<< HEAD
     for _, row in metadata[(metadata['state']!='AK') & (metadata['state']!='HI')].iterrows():  # .iloc[args.id_start:(args.id_start + args.n_id), :].iterrows():
         this_id = row['station_id']
         f = '%s/%s.csv' % (args.datadir, this_id)
@@ -68,9 +71,14 @@ if __name__ == '__main__':
 
         print(this_id)
 
+=======
+    for _, row in metadata.iloc[args.id_start:(args.id_start + args.n_id), :].iterrows():
+        this_id = row['station_id']
+        f = '%s/%s.csv' % (args.datadir, this_id)
+        df = pd.read_csv(f)
+        print(this_id)
+>>>>>>> updated to add bootstrap
         savename = '%s/US_extremes_params_%i_%i_%s.npz' % (paramdir, start_year, end_year, this_id)
-        if os.path.isfile(savename):
-            continue
 
         # Perform data QC
 
@@ -93,7 +101,7 @@ if __name__ == '__main__':
             continue
 
         # add GMT anoms
-        df = add_GMT(df)
+        df = add_GMT(df, GMT_fname='/glade/work/mckinnon/BEST/Land_and_Ocean_complete.txt')
 
         # Drop Feb 29, and rework day of year counters
         leaps = np.arange(1904, 2020, 4)  # leap years
@@ -129,7 +137,6 @@ if __name__ == '__main__':
         # Check if sufficient data
         yrs = np.arange(start_year, end_year + 1)  # inclusive
         frac_avail = np.zeros((len(yrs)))
-        flag = 1
         for ct, yy in enumerate(yrs):
             count = len(df[(df['year'] == yy)])
             frac_avail[ct] = count/122  # 122 days in JJAS!
@@ -158,95 +165,92 @@ if __name__ == '__main__':
         # remove mean of GMT
         df = df.assign(GMT=df['GMT'] - np.mean(df['GMT']))
 
-        # Sort data frame by temperature to allow us to minimize the second derivative of the T-Td relationship
-        df = df.sort_values('temp_anom')
+        df0 = df.copy()
+        if not os.path.isfile(savename):
+            # Sort data frame by temperature to allow us to minimize the second derivative of the T-Td relationship
+            df = df.sort_values('temp_anom')
 
-        # Create X, the design matrix
-        # Intercept, linear in GMT, knots at all data points for temperature, same times GMT
-        n = len(df)
-        ncols = 2 + 2*n
-        X = np.ones((n, ncols))
-        X[:, 1] = df['GMT'].values
-        X[:, 2:(2 + n)] = np.identity(n)
-        X[:, (2 + n):] = np.identity(n)*df['GMT'].values
-        # Fit the model
-        BETA, _ = fit_interaction_model(qs, lam_use*np.ones(len(qs)), 'Fixed', X,
-                                        df['dewp_anom'].values, df['temp_anom'].values)
-        del X
+            # Create X, the design matrix
+            # Intercept, linear in GMT, knots at all data points for temperature, same times GMT
+            n = len(df)
+            ncols = 2 + 2*n
+            X = np.ones((n, ncols))
+            X[:, 1] = df['GMT'].values
+            X[:, 2:(2 + n)] = np.identity(n)
+            X[:, (2 + n):] = np.identity(n)*df['GMT'].values
+            # Fit the model
+            BETA, _ = fit_interaction_model(qs, lam_use*np.ones(len(qs)), 'Fixed', X,
+                                            df['dewp_anom'].values, df['temp_anom'].values)
+            del X
 
-        # Save primary fit
-        np.savez(savename,
-                 T=df['temp_anom'].values,
-                 Td=df['dewp_anom'].values,
-                 G=df['GMT'].values,
-                 BETA=BETA,
-                 lambd=lam_use,
-                 lat=row['lat'],
-                 lon=row['lon'])
+            # Save primary fit
+            np.savez(savename,
+                     T=df['temp_anom'].values,
+                     Td=df['dewp_anom'].values,
+                     G=df['GMT'].values,
+                     BETA=BETA,
+                     lambd=lam_use,
+                     lat=row['lat'],
+                     lon=row['lon'])
 
         # Check if we're doing the bootstrap
         if args.nboot > 0:
 
-            # Check if this station is in the ROI
-            gdf = geopandas.GeoDataFrame(geometry=geopandas.points_from_xy([row['lon']], [row['lat']]))
-            gdf.crs = 'epsg:4326'  # set projection to lat/lon
-            within_ROI = gdf.within(interior_west['geometry'].loc[0]).values
+            for kk in range(args.boot_start, args.boot_start + args.nboot):
+                # Set seed so we can reproduce each bootstrap sample if needed
+                np.random.seed(kk)
+                print('%s: %i' % (this_id, kk))
 
-            if within_ROI:  # do bootstrap
-                Tspan = np.linspace(np.min(df['temp_anom'].values), np.max(df['temp_anom'].values), 100)
-                for kk in range(args.boot_start, args.boot_start + args.nboot):
-                    # Set seed so we can reproduce each bootstrap sample if needed
-                    np.random.seed(kk)
-                    print('%s: %i' % (this_id, kk))
+                savename = ('%s/boot/US_extremes_params_%i_%i_%s_boot_%04i.npz'
+                            % (paramdir, start_year, end_year, this_id, kk))
+                if os.path.isfile(savename):
+                    continue
 
-                    savename = ('%s/boot/US_extremes_params_%i_%i_%s_boot_%04i.npz'
-                                % (paramdir, start_year, end_year, this_id, kk))
-                    if os.path.isfile(savename):
-                        continue
+                # Reset back to original df
+                df = df0.copy()
+                # Resample years (full bootstrap)
+                yrs_unique = np.unique(df['year'])
+                nyrs = len(yrs_unique)
+                new_years = np.random.choice(yrs_unique, nyrs)
 
-                    # Resample years (full bootstrap)
-                    yrs_unique = np.unique(df['year'])
-                    nyrs = len(yrs_unique)
-                    new_years = np.random.choice(yrs_unique, nyrs)
+                new_df = pd.DataFrame()
+                for yy in new_years:
+                    sub_df = df.loc[df['year'] == yy, :]
+                    new_df = new_df.append(sub_df)
 
-                    new_df = pd.DataFrame()
-                    for yy in new_years:
-                        sub_df = df.loc[df['year'] == yy, :]
-                        new_df = new_df.append(sub_df)
+                new_df = new_df.reset_index()
 
-                    new_df = new_df.reset_index()
+                # remove mean of GMT
+                new_df = new_df.assign(GMT=new_df['GMT'] - np.mean(new_df['GMT']))
 
-                    # remove mean of GMT
-                    new_df = new_df.assign(GMT=new_df['GMT'] - np.mean(new_df['GMT']))
+                # Add jitter again, since we're resampling years
+                # However, note that we're now in Celsius, so 1/10 F -> 5/90 C
+                new_df['temp_anom'] = jitter(new_df['temp_anom'], 0, 5/90)
+                new_df['dewp_anom'] = jitter(new_df['dewp_anom'], 0, 5/90)
 
-                    # Add jitter again, since we're resampling years
-                    # However, note that we're now in Celsius, so 1/10 F -> 5/90 C
-                    new_df['temp_anom'] = jitter(new_df['temp_anom'], 0, 5/90)
-                    new_df['dewp_anom'] = jitter(new_df['dewp_anom'], 0, 5/90)
+                # Sort
+                new_df = new_df.sort_values('temp_anom')
 
-                    # Sort
-                    new_df = new_df.sort_values('temp_anom')
+                # Create X, the design matrix
+                # Intercept, linear in GMT, knots at all data points for temperature, same times GMT
+                n = len(new_df)
+                ncols = 2 + 2*n
+                X = np.ones((n, ncols))
+                X[:, 1] = new_df['GMT'].values
+                X[:, 2:(2 + n)] = np.identity(n)
+                X[:, (2 + n):] = np.identity(n)*new_df['GMT'].values
 
-                    # Create X, the design matrix
-                    # Intercept, linear in GMT, knots at all data points for temperature, same times GMT
-                    n = len(new_df)
-                    ncols = 2 + 2*n
-                    X = np.ones((n, ncols))
-                    X[:, 1] = new_df['GMT'].values
-                    X[:, 2:(2 + n)] = np.identity(n)
-                    X[:, (2 + n):] = np.identity(n)*new_df['GMT'].values
+                # Fit the model
+                BETA, _ = fit_interaction_model(qs, lam_use*np.ones(len(qs)), 'Fixed', X,
+                                                new_df['dewp_anom'].values, new_df['temp_anom'].values)
+                del X
 
-                    # Fit the model
-                    BETA, _ = fit_interaction_model(qs, lam_use*np.ones(len(qs)), 'Fixed', X,
-                                                    new_df['dewp_anom'].values, new_df['temp_anom'].values)
-                    del X
-
-                    np.savez(savename,
-                             T=new_df['temp_anom'].values,
-                             Td=new_df['dewp_anom'].values,
-                             G=new_df['GMT'].values,
-                             BETA=BETA,
-                             lambd=lam_use,
-                             lat=row['lat'],
-                             lon=row['lon'])
+                np.savez(savename,
+                         T=new_df['temp_anom'].values,
+                         Td=new_df['dewp_anom'].values,
+                         G=new_df['GMT'].values,
+                         BETA=BETA,
+                         lambd=lam_use,
+                         lat=row['lat'],
+                         lon=row['lon'])
         del df
