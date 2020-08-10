@@ -20,8 +20,9 @@ hist_name = url_history.split('/')[-1]
 
 savedir = '/glade/work/mckinnon/ISD'
 
-cmd = 'wget -q -O %s/%s %s' % (savedir, hist_name, url_history)
-check_call(cmd.split())
+if not os.path.isfile('%s/%s' % (savedir, hist_name)):
+    cmd = 'wget -q -O %s/%s %s' % (savedir, hist_name, url_history)
+    check_call(cmd.split())
 
 df_meta = pd.read_csv('%s/%s' % (savedir, hist_name))
 dt_begin = np.array([datetime.strptime(str(d), '%Y%m%d') for d in df_meta['BEGIN']])
@@ -34,6 +35,7 @@ for state in exclude_states:
     idx_use = idx_use & (df_meta['STATE'] != state)
 
 df_meta = df_meta[idx_use].reset_index()
+df_meta.to_csv('%s/metadata.csv' % savedir)
 
 
 def remove_bad_rows(df):
