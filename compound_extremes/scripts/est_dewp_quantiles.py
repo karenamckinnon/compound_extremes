@@ -53,7 +53,7 @@ if __name__ == '__main__':
     gdf = geopandas.GeoDataFrame(geometry=geopandas.points_from_xy(metadata.lon, metadata.lat))
     gdf.crs = 'epsg:4326'  # set projection to lat/lon
     within_ROI = gdf.within(interior_west['geometry'].loc[0]).values
-    metadata = metadata.iloc[within_ROI].reset_index()
+    # metadata = metadata.iloc[within_ROI].reset_index()
 
     def return_lambda(x_data):
         """Model for lambda from JABES paper"""
@@ -62,6 +62,8 @@ if __name__ == '__main__':
 
         return np.exp(loglam)
 
+    # Exclude AK and HI
+    metadata = metadata.loc[(metadata['state'] != 'AK') & (metadata['state'] != 'HI')]
     # Loop through stations
     for _, row in metadata.iloc[args.id_start:(args.id_start + args.n_id), :].iterrows():
         this_id = row['station_id']
@@ -141,11 +143,18 @@ if __name__ == '__main__':
                            (np.mean(frac_avail[-3:]) > 0) &
                            (frac_with_80 > 0.8))
 
-        no_data = np.where(frac_avail[:-1] == 0)[0]
-        for ii in no_data:
-            if frac_avail[ii+1] == 0:
-                data_sufficient = 0
-                break
+        if start_year > 1950:
+            no_data = np.where(frac_avail[:-1] == 0)[0]
+            for ii in no_data:
+                if frac_avail[ii+1] == 0:
+                    data_sufficient = 0
+                    break
+        else:
+            no_data = np.where(frac_avail[:-3] == 0)[0]
+            for ii in no_data:
+                if ((frac_avail[ii+1] == 0) & (frac_avail[ii+2] == 0) & (frac_avail[ii+3] == 0)):
+                    data_sufficient = 0
+                    break
 
         if ~data_sufficient:
             continue
