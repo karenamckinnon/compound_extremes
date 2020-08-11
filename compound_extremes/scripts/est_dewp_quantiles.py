@@ -1,7 +1,5 @@
 """
-Calculate trends in given percentiles of dew point conditional on temperature.
-
-Both temperature and dew point are daily average values from GSOD data.
+Calculate trends in given percentiles of humidity conditional on temperature.
 """
 
 import geopandas
@@ -9,7 +7,7 @@ import numpy as np
 import pandas as pd
 from humidity_variability.utils import add_date_columns, jitter, add_GMT
 from humidity_variability.models import fit_interaction_model
-from helpful_utilities.meteo import F_to_C
+from helpful_utilities.meteo import F_to_C, C_to_F
 from compound_extremes.utils import fit_seasonal_cycle
 import os
 from subprocess import check_call
@@ -18,23 +16,32 @@ import argparse
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('start_year', type=int, help='Integer year to start')
+    parser.add_argument('end_year', type=int, help='Integer year to end')
     parser.add_argument('id_start', type=int, help='Station index to start with')
     parser.add_argument('n_id', type=int, help='Number of stations to run')
-    parser.add_argument('boot_start', type=int, help='Bootstrap index to start with')
-    parser.add_argument('nboot', type=int, help='Number of samples')
     parser.add_argument('datadir', type=str, help='Full path to data')
-    parser.add_argument('gjson_fname', type=str, help='Full path and filename of ROI geometry')
+    parser.add_argument('datatype', type=str, help='GSOD or ISD')
+    parser.add_argument('gjson_fname', type=str, help='Full path and filename of ROI geometry or None')
     args = parser.parse_args()
+
+    if args.datatype == 'GSOD':
+        humidity_var = 'dewp'
+        temp_var = 'temp'
+    elif args.datatype == 'ISD':
+        humidity_var = 'Q'
+        temp_var = 'TMP'
 
     spread = 1/10  # data rounded to 1/10 deg F
     offset = 0
-    qs = np.array([0.05, 0.5, 0.95])
-    start_year = 1973
-    end_year = 2019
-
-    # original metadata is sometimes incorrect
-    # new_metadata has correct start/end times
     metadata = pd.read_csv('%s/new_metadata.csv' % (args.datadir))
+    qs = np.array([0.05, 0.5, 0.95])
+    start_year = args.start_year
+    end_year = args.end_year
+
+    if args.datatype == 'ISD':
+        station_id = ['%06d-%05d' % (row['usaf'], row['wban']) for _, row in metadata.iterrows()]
+        metadata = metadata.assign(station_id=station_id)
 
     # make sure dirs to save exist
     paramdir = '%s/params' % (args.datadir)
@@ -46,14 +53,15 @@ if __name__ == '__main__':
         cmd = 'mkdir %s/boot' % paramdir
         check_call(cmd.split())
 
-    # Interior west domain for bootstrapping (lat, lon)
-    interior_west = geopandas.read_file(args.gjson_fname)
+    if args.gjson_fname != 'None':
+        # Interior west domain for bootstrapping (lat, lon)
+        interior_west = geopandas.read_file(args.gjson_fname)
 
-    # Only calculate trends in stations in west
-    gdf = geopandas.GeoDataFrame(geometry=geopandas.points_from_xy(metadata.lon, metadata.lat))
-    gdf.crs = 'epsg:4326'  # set projection to lat/lon
-    within_ROI = gdf.within(interior_west['geometry'].loc[0]).values
-    # metadata = metadata.iloc[within_ROI].reset_index()
+        # Only calculate trends in stations in west
+        gdf = geopandas.GeoDataFrame(geometry=geopandas.points_from_xy(metadata.lon, metadata.lat))
+        gdf.crs = 'epsg:4326'  # set projection to lat/lon
+        within_ROI = gdf.within(interior_west['geometry'].loc[0]).values
+        metadata = metadata.iloc[within_ROI].reset_index()
 
     def return_lambda(x_data):
         """Model for lambda from JABES paper"""
@@ -70,20 +78,21 @@ if __name__ == '__main__':
         f = '%s/%s.csv' % (args.datadir, this_id)
         df = pd.read_csv(f)
         print(this_id)
-        savename = '%s/US_extremes_params_%i_%i_%s.npz' % (paramdir, start_year, end_year, this_id)
+        savename = '%s/%s_US_extremes_params_%i_%i_%s.npz' % (paramdir, args.datatype, start_year, end_year, this_id)
 
         # Perform data QC
 
         # Drop missing data
-        df = df[~np.isnan(df['dewp'])]
-        df = df[~np.isnan(df['temp'])]
+        df = df[~np.isnan(df[humidity_var])]
+        df = df[~np.isnan(df[temp_var])]
 
         # Drop places where less than four obs were used for average
-        df = df[~((df['temp_c'] < 4) | (df['dewp_c'] < 4))]
+        if args.datatype == 'GSOD':
+            df = df[~((df['temp_c'] < 4) | (df['dewp_c'] < 4))]
 
-        # Drop places where dew point exceeds temperature
-        # Not strictly correct because both are daily averages, but unlikely to happen in valid data
-        df = df[df['temp'] >= df['dewp']]
+            # Drop places where dew point exceeds temperature
+            # Not strictly correct because both are daily averages, but unlikely to happen in valid data
+            df = df[df[temp_var] >= df[humidity_var]]
 
         # Add additional date columns
         df = add_date_columns(df)
@@ -102,23 +111,23 @@ if __name__ == '__main__':
             df.loc[(df['year'] == ll) & (df['month'] > 2), 'doy'] = old_doy - 1
         df = df[~((df['month'] == 2) & (df['doy'] == 60))]
 
-        # Add jitter
-        df = df.assign(temp=jitter(df['temp'], offset, spread))
-        df = df.assign(dewp=jitter(df['dewp'], offset, spread))
+        if args.datatype == 'GSOD':
+            # Add jitter and convert to C
+            df = df.assign(**{temp_var: F_to_C(jitter(df[temp_var], offset, spread))})
+            df = df.assign(**{humidity_var: F_to_C(jitter(df[humidity_var], offset, spread))})
 
-        # convert to C
-        df = df.assign(dewp=F_to_C(df['dewp']))
-        df = df.assign(temp=F_to_C(df['temp']))
+        elif args.datatype == 'ISD':  # US data was originally 1/10 F, but converted to C
+            df = df.assign(**{temp_var: F_to_C(jitter(C_to_F(df[temp_var]), 0, 1/10))})
 
         # Fit seasonal cycle with first three harmonics and remove
-        _, residual_T, _ = fit_seasonal_cycle(df['doy'], df['temp'], nbases=3)
+        _, residual_T, _ = fit_seasonal_cycle(df['doy'], df[temp_var].copy(), nbases=3)
         # Dew point seasonal cycle requires 10 harmonics because rapid uptick in monsoon regions
-        _, residual_DP, _ = fit_seasonal_cycle(df['doy'], df['dewp'], nbases=10)
+        _, residual_H, _ = fit_seasonal_cycle(df['doy'], df[humidity_var].copy(), nbases=10)
 
-        df = df.assign(dewp_anom=residual_DP)
-        df = df.assign(temp_anom=residual_T)
+        df = df.assign(**{'%s_anom' % humidity_var: residual_H})
+        df = df.assign(**{'%s_anom' % temp_var: residual_T})
 
-        del residual_T, residual_DP
+        del residual_T, residual_H
 
         # Pull out JJAS
         df = df.loc[(df['month'] >= 6) & (df['month'] <= 9)]
@@ -159,7 +168,7 @@ if __name__ == '__main__':
         if ~data_sufficient:
             continue
 
-        lam_use = return_lambda(df['temp_anom'].values)
+        lam_use = return_lambda(df['%s_anom' % temp_var].values)
 
         # remove mean of GMT
         df = df.assign(GMT=df['GMT'] - np.mean(df['GMT']))
@@ -167,7 +176,7 @@ if __name__ == '__main__':
         df0 = df.copy()
         if not os.path.isfile(savename):
             # Sort data frame by temperature to allow us to minimize the second derivative of the T-Td relationship
-            df = df.sort_values('temp_anom')
+            df = df.sort_values('%s_anom' % temp_var)
 
             # Create X, the design matrix
             # Intercept, linear in GMT, knots at all data points for temperature, same times GMT
@@ -179,77 +188,15 @@ if __name__ == '__main__':
             X[:, (2 + n):] = np.identity(n)*df['GMT'].values
             # Fit the model
             BETA, _ = fit_interaction_model(qs, lam_use*np.ones(len(qs)), 'Fixed', X,
-                                            df['dewp_anom'].values, df['temp_anom'].values)
+                                            df['%s_anom' % humidity_var].values, df['%s_anom' % temp_var].values)
             del X
 
             # Save primary fit
             np.savez(savename,
-                     T=df['temp_anom'].values,
-                     Td=df['dewp_anom'].values,
+                     T=df['%s_anom' % temp_var].values,
+                     H=df['%s_anom' % humidity_var].values,
                      G=df['GMT'].values,
                      BETA=BETA,
                      lambd=lam_use,
                      lat=row['lat'],
                      lon=row['lon'])
-
-        # Check if we're doing the bootstrap
-        if args.nboot > 0:
-
-            for kk in range(args.boot_start, args.boot_start + args.nboot):
-                # Set seed so we can reproduce each bootstrap sample if needed
-                np.random.seed(kk)
-                print('%s: %i' % (this_id, kk))
-
-                savename = ('%s/boot/US_extremes_params_%i_%i_%s_boot_%04i.npz'
-                            % (paramdir, start_year, end_year, this_id, kk))
-                if os.path.isfile(savename):
-                    continue
-
-                # Reset back to original df
-                df = df0.copy()
-                # Resample years (full bootstrap)
-                yrs_unique = np.unique(df['year'])
-                nyrs = len(yrs_unique)
-                new_years = np.random.choice(yrs_unique, nyrs)
-
-                new_df = pd.DataFrame()
-                for yy in new_years:
-                    sub_df = df.loc[df['year'] == yy, :]
-                    new_df = new_df.append(sub_df)
-
-                new_df = new_df.reset_index()
-
-                # remove mean of GMT
-                new_df = new_df.assign(GMT=new_df['GMT'] - np.mean(new_df['GMT']))
-
-                # Add jitter again, since we're resampling years
-                # However, note that we're now in Celsius, so 1/10 F -> 5/90 C
-                new_df['temp_anom'] = jitter(new_df['temp_anom'], 0, 5/90)
-                new_df['dewp_anom'] = jitter(new_df['dewp_anom'], 0, 5/90)
-
-                # Sort
-                new_df = new_df.sort_values('temp_anom')
-
-                # Create X, the design matrix
-                # Intercept, linear in GMT, knots at all data points for temperature, same times GMT
-                n = len(new_df)
-                ncols = 2 + 2*n
-                X = np.ones((n, ncols))
-                X[:, 1] = new_df['GMT'].values
-                X[:, 2:(2 + n)] = np.identity(n)
-                X[:, (2 + n):] = np.identity(n)*new_df['GMT'].values
-
-                # Fit the model
-                BETA, _ = fit_interaction_model(qs, lam_use*np.ones(len(qs)), 'Fixed', X,
-                                                new_df['dewp_anom'].values, new_df['temp_anom'].values)
-                del X
-
-                np.savez(savename,
-                         T=new_df['temp_anom'].values,
-                         Td=new_df['dewp_anom'].values,
-                         G=new_df['GMT'].values,
-                         BETA=BETA,
-                         lambd=lam_use,
-                         lat=row['lat'],
-                         lon=row['lon'])
-        del df
