@@ -49,12 +49,7 @@ if __name__ == '__main__':
         cmd = 'mkdir %s' % paramdir
         check_call(cmd.split())
 
-    if not os.path.isdir('%s/boot' % paramdir):
-        cmd = 'mkdir %s/boot' % paramdir
-        check_call(cmd.split())
-
     if args.gjson_fname != 'None':
-        # Interior west domain for bootstrapping (lat, lon)
         interior_west = geopandas.read_file(args.gjson_fname)
 
         # Only calculate trends in stations in west
