@@ -46,6 +46,9 @@ if __name__ == '__main__':
         print(this_id)
         savename = '%s/ERA5_US_extremes_params_%i_%i_%s.npz' % (paramdir, start_year, end_year, this_id)
 
+        # Add a small amount of noise so no temperatures are identical
+        df = df.assign(**{'%s_anom' % temp_var: df['%s_anom' % temp_var] + 1e-8*np.random.randn(len(df))})
+
         # Add additional date columns
         df = add_date_columns(df)
 
