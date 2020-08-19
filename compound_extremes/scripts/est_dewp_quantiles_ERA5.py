@@ -35,7 +35,7 @@ if __name__ == '__main__':
     spread = 1/10  # data rounded to 1/10 deg F
     offset = 0
     metadata = pd.read_csv('%s/new_metadata.csv' % (args.datadir))
-    qs = np.array([0.05, 0.5, 0.95])
+    qs = np.array([0.05, 0.10, 0.5, 0.90, 0.95])
     start_year = args.start_year
     end_year = args.end_year
 

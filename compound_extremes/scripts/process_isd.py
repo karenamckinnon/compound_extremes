@@ -20,8 +20,9 @@ hist_name = url_history.split('/')[-1]
 
 savedir = '/glade/work/mckinnon/ISD'
 
-cmd = 'wget -q -O %s/%s %s' % (savedir, hist_name, url_history)
-check_call(cmd.split())
+if not os.path.isfile('%s/%s' % (savedir, hist_name)):
+    cmd = 'wget -q -O %s/%s %s' % (savedir, hist_name, url_history)
+    check_call(cmd.split())
 
 df_meta = pd.read_csv('%s/%s' % (savedir, hist_name))
 dt_begin = np.array([datetime.strptime(str(d), '%Y%m%d') for d in df_meta['BEGIN']])
@@ -99,15 +100,16 @@ def remove_bad_vals(df, varname):
 
 usecols = ['SOURCE', 'REPORT_TYPE', 'CALL_SIGN', 'QUALITY_CONTROL', 'DATE', 'ELEVATION', 'DEW', 'TMP', 'SLP']
 keepcols = ['DATE', 'DEW', 'TMP', 'SLP']
+has_data = np.ones(len(df_meta)).astype(bool)
 
 for ct, row in df_meta.iterrows():
-    savename = '%s/csv/%s-%s.csv' % (savedir, row['USAF'], row['WBAN'])
+    savename = '%s/csv/%06d-%05d.csv' % (savedir, int(row['USAF']), int(row['WBAN']))
     if os.path.isfile(savename):
         continue
     print('%i/%i' % (ct, len(df_meta)))
 
     # download files for each year
-    station_id = '%s%s' % (row['USAF'], row['WBAN'])
+    station_id = '%06d%05d' % (int(row['USAF']), int(row['WBAN']))
     yy1 = row['BEGIN'].year
     yy2 = row['END'].year
 
@@ -141,6 +143,7 @@ for ct, row in df_meta.iterrows():
     if len(all_df) > 0:
         all_df = pd.concat(all_df).reset_index()
     else:  # no files available
+        has_data[ct] = False
         continue
 
     # Estimate station pressure (as per Willett et al 2014)
@@ -162,5 +165,21 @@ for ct, row in df_meta.iterrows():
     # get rid of extra index
     avg_df = avg_df.iloc[:, 1:]
 
-    # Save
-    avg_df.to_csv(savename)
+    # Fix title of date column
+    avg_df = avg_df.reset_index()
+    avg_df = avg_df.rename(columns={'index': 'date'})
+
+    # Make sure there are a reasonable number of values
+    if np.sum(~np.isnan(avg_df['Q'])) < 100:
+        has_data[ct] = False
+    else:
+        # Save
+        avg_df.to_csv(savename, index=False)
+
+# remove stations with no data from metadata
+df_meta = df_meta[has_data]
+
+# Change to lowercase headings, add station_id, and save
+df_meta.columns = [c.lower() for c in df_meta.columns]
+df_meta = df_meta.assign(station_id='%s-%s' % (df_meta['usaf'], df_meta['wban']))
+df_meta.to_csv('%s/csv/new_metadata.csv' % savedir)
