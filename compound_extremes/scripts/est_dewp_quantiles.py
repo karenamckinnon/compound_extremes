@@ -153,13 +153,6 @@ if __name__ == '__main__':
                 if frac_avail[ii+1] == 0:
                     data_sufficient = 0
                     break
-        else:
-            no_data = np.where(frac_avail[:-3] == 0)[0]
-            for ii in no_data:
-                if ((frac_avail[ii+1] == 0) & (frac_avail[ii+2] == 0) & (frac_avail[ii+3] == 0)):
-                    data_sufficient = 0
-                    break
-
         if ~data_sufficient:
             continue
 
