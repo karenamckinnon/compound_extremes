@@ -35,7 +35,7 @@ if __name__ == '__main__':
     spread = 1/10  # data rounded to 1/10 deg F
     offset = 0
     metadata = pd.read_csv('%s/new_metadata.csv' % (args.datadir))
-    qs = np.array([0.05, 0.5, 0.95])
+    qs = np.array([0.05, 0.1, 0.5, 0.9, 0.95])
     start_year = args.start_year
     end_year = args.end_year
 
@@ -88,6 +88,10 @@ if __name__ == '__main__':
             # Drop places where dew point exceeds temperature
             # Not strictly correct because both are daily averages, but unlikely to happen in valid data
             df = df[df[temp_var] >= df[humidity_var]]
+
+        # Reset index, then get rid of the extra column
+        df = df.reset_index()
+        df = df.drop(columns=[df.columns[0]])
 
         # Add additional date columns
         df = add_date_columns(df)
