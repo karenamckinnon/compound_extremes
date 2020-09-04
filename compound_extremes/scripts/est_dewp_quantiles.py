@@ -12,17 +12,21 @@ from compound_extremes.utils import fit_seasonal_cycle
 import os
 from subprocess import check_call
 import argparse
+import calendar
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('start_year', type=int, help='Integer year to start')
     parser.add_argument('end_year', type=int, help='Integer year to end')
+    parser.add_argument('start_month', type=int, help='Integer month to start (1-indexed)')
+    parser.add_argument('end_month', type=int, help='Integer month to end (1-indexed)')
     parser.add_argument('id_start', type=int, help='Station index to start with')
     parser.add_argument('n_id', type=int, help='Number of stations to run')
     parser.add_argument('datadir', type=str, help='Full path to data')
     parser.add_argument('datatype', type=str, help='GSOD or ISD')
     parser.add_argument('gjson_fname', type=str, help='Full path and filename of ROI geometry or None')
+    parser.add_argument('predictor', type=str, help='GMT or year')
     args = parser.parse_args()
 
     if args.datatype == 'GSOD':
@@ -38,6 +42,9 @@ if __name__ == '__main__':
     qs = np.array([0.05, 0.1, 0.5, 0.9, 0.95])
     start_year = args.start_year
     end_year = args.end_year
+    start_month = args.start_month
+    end_month = args.end_month
+    predictor = args.predictor
 
     if args.datatype == 'ISD':
         station_id = ['%06d-%05d' % (row['usaf'], row['wban']) for _, row in metadata.iterrows()]
@@ -73,7 +80,8 @@ if __name__ == '__main__':
         f = '%s/%s.csv' % (args.datadir, this_id)
         df = pd.read_csv(f)
         print(this_id)
-        savename = '%s/%s_US_extremes_params_%i_%i_%s.npz' % (paramdir, args.datatype, start_year, end_year, this_id)
+        savename = ('%s/%s_US_extremes_params_trend_%s_%i_%i_month_%i-%i_%s.npz'
+                    % (paramdir, args.datatype, predictor, start_year, end_year, start_month, end_month, this_id))
 
         # Perform data QC
 
@@ -128,8 +136,13 @@ if __name__ == '__main__':
 
         del residual_T, residual_H
 
-        # Pull out JJAS
-        df = df.loc[(df['month'] >= 6) & (df['month'] <= 9)]
+        # Pull out season
+        df = df.loc[(df['month'] >= start_month) & (df['month'] <= end_month)]
+
+        # Calculate the number of days in the season (all summer, so no leap year concerns)
+        seasonal_days = 0
+        for mo in range(start_month, end_month + 1):
+            seasonal_days += calendar.monthrange(2020, mo)[-1]
 
         # Pull out correct year span
         df = df[(df['year'] >= start_year) & (df['year'] <= end_year)]
@@ -139,7 +152,7 @@ if __name__ == '__main__':
         frac_avail = np.zeros((len(yrs)))
         for ct, yy in enumerate(yrs):
             count = len(df[(df['year'] == yy)])
-            frac_avail[ct] = count/122  # 122 days in JJAS!
+            frac_avail[ct] = count/seasonal_days
 
         frac_with_80 = np.sum(frac_avail > 0.8)/len(frac_avail)
 
@@ -162,10 +175,9 @@ if __name__ == '__main__':
 
         lam_use = return_lambda(df['%s_anom' % temp_var].values)
 
-        # remove mean of GMT
-        df = df.assign(GMT=df['GMT'] - np.mean(df['GMT']))
+        # remove mean of predictor
+        df = df.assign(**{predictor: df[predictor].astype(float) - np.mean(df[predictor])})
 
-        df0 = df.copy()
         if not os.path.isfile(savename):
             # Sort data frame by temperature to allow us to minimize the second derivative of the T-Td relationship
             df = df.sort_values('%s_anom' % temp_var)
@@ -175,9 +187,9 @@ if __name__ == '__main__':
             n = len(df)
             ncols = 2 + 2*n
             X = np.ones((n, ncols))
-            X[:, 1] = df['GMT'].values
+            X[:, 1] = df[predictor].values
             X[:, 2:(2 + n)] = np.identity(n)
-            X[:, (2 + n):] = np.identity(n)*df['GMT'].values
+            X[:, (2 + n):] = np.identity(n)*df[predictor].values
             # Fit the model
             BETA, _ = fit_interaction_model(qs, lam_use*np.ones(len(qs)), 'Fixed', X,
                                             df['%s_anom' % humidity_var].values, df['%s_anom' % temp_var].values)
@@ -187,7 +199,7 @@ if __name__ == '__main__':
             np.savez(savename,
                      T=df['%s_anom' % temp_var].values,
                      H=df['%s_anom' % humidity_var].values,
-                     G=df['GMT'].values,
+                     G=df[predictor].values,
                      BETA=BETA,
                      lambd=lam_use,
                      lat=row['lat'],
