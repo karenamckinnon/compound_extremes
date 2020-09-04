@@ -13,6 +13,8 @@ import argparse
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('start_month', type=int, help='Integer month to start (1-indexed)')
+    parser.add_argument('end_month', type=int, help='Integer month to end (1-indexed)')
     parser.add_argument('id_start', type=int, help='Station index to start with')
     parser.add_argument('n_id', type=int, help='Number of stations to run')
     parser.add_argument('datadir', type=str, help='Full path to data')
@@ -22,6 +24,8 @@ if __name__ == '__main__':
     qs = np.array([0.05, 0.10, 0.5, 0.90, 0.95])
     start_year = 1979
     end_year = 2019
+    start_month = args.start_month
+    end_month = args.end_month
     temp_var = 'TMP'
     humidity_var = 'Q'
 
@@ -44,7 +48,8 @@ if __name__ == '__main__':
         f = '%s/%s.csv' % (args.datadir, this_id)
         df = pd.read_csv(f)
         print(this_id)
-        savename = '%s/ERA5_US_extremes_params_%i_%i_%s.npz' % (paramdir, start_year, end_year, this_id)
+        savename = ('%s/ERA5_US_extremes_params_%i_%i_month_%i-%i_%s.npz'
+                    % (paramdir, start_year, end_year, start_month, end_month, this_id))
 
         if os.path.isfile(savename):
             continue
@@ -57,6 +62,9 @@ if __name__ == '__main__':
 
         # add GMT anoms
         df = add_GMT(df, GMT_fname='/glade/work/mckinnon/BEST/Land_and_Ocean_complete.txt')
+
+        # Pull out season
+        df = df.loc[(df['month'] >= start_month) & (df['month'] <= end_month)]
 
         lam_use = return_lambda(df['%s_anom' % temp_var].values)
 
