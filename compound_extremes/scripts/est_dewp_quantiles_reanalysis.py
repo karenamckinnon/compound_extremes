@@ -13,17 +13,20 @@ import argparse
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('start_year', type=int, help='Integer year to start')
+    parser.add_argument('end_year', type=int, help='Integer year to end')
     parser.add_argument('start_month', type=int, help='Integer month to start (1-indexed)')
     parser.add_argument('end_month', type=int, help='Integer month to end (1-indexed)')
     parser.add_argument('id_start', type=int, help='Station index to start with')
     parser.add_argument('n_id', type=int, help='Number of stations to run')
     parser.add_argument('datadir', type=str, help='Full path to data')
+    parser.add_argument('reanalysis_name', type=str, help='Reanalysis name')
 
     args = parser.parse_args()
     metadata = pd.read_csv('%s/new_metadata.csv' % (args.datadir))
     qs = np.array([0.05, 0.10, 0.5, 0.90, 0.95])
-    start_year = 1979
-    end_year = 2019
+    start_year = args.start_year
+    end_year = args.end_year
     start_month = args.start_month
     end_month = args.end_month
     temp_var = 'TMP'
@@ -48,8 +51,8 @@ if __name__ == '__main__':
         f = '%s/%s.csv' % (args.datadir, this_id)
         df = pd.read_csv(f)
         print(this_id)
-        savename = ('%s/ERA5_US_extremes_params_%i_%i_month_%i-%i_%s.npz'
-                    % (paramdir, start_year, end_year, start_month, end_month, this_id))
+        savename = ('%s/%s_US_extremes_params_%i_%i_month_%i-%i_%s.npz'
+                    % (paramdir, args.reanalysis_name, start_year, end_year, start_month, end_month, this_id))
 
         if os.path.isfile(savename):
             continue
