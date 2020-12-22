@@ -75,7 +75,7 @@ if __name__ == '__main__':
         df = pd.read_csv(f)
         print(this_id)
         savename = ('%s/%s_US_extremes_params_trend_%s_%i_%i_month_%i-%i_%s.npz'
-                    % (paramdir, args.datatype, predictor, start_year, end_year, start_month, end_month, this_id))
+                    % (paramdir, 'ISD', predictor, start_year, end_year, start_month, end_month, this_id))
 
         # Perform data QC
 
@@ -95,7 +95,7 @@ if __name__ == '__main__':
             continue
 
         # add GMT anoms, lowpass filtered with frequency cutoff of 1/10yr
-        df = add_GMT(df, lowpass_freq=1/10, GMT_fname='/glade/work/mckinnon/BEST/Land_and_Ocean_complete.txt')
+        df = add_GMT(df, lowpass_freq=1/10, GMT_fname='../data/Land_and_Ocean_complete.txt')
 
         # Drop Feb 29, and rework day of year counters
         leaps = np.arange(1904, 2020, 4)  # leap years
