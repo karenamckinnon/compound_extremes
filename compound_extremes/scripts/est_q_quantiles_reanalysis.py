@@ -64,7 +64,7 @@ if __name__ == '__main__':
         df = add_date_columns(df)
 
         # add GMT anoms
-        df = add_GMT(df, GMT_fname='/glade/work/mckinnon/BEST/Land_and_Ocean_complete.txt')
+        df = add_GMT(df, lowpass_freq=1/10, GMT_fname='../data/Land_and_Ocean_complete.txt')
 
         # Pull out season
         df = df.loc[(df['month'] >= start_month) & (df['month'] <= end_month)]
