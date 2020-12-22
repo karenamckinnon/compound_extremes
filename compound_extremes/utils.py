@@ -63,8 +63,12 @@ def fit_seasonal_cycle_lowpass(doy, data, cut_freq=1/30):
 
     Returns
     -------
+    rec : numpy.ndarray
+        Reconstructed seasonal structure, of same length as data
     residual : numpy.ndarray
         The residual from the seasonal fit.
+    rec_ann : numpy.ndarray
+        The 365-day version of the seasonal cycle
     """
 
     tmp_df = pd.DataFrame({'doy': doy, 'data': data})
@@ -78,7 +82,10 @@ def fit_seasonal_cycle_lowpass(doy, data, cut_freq=1/30):
         smooth_sc_val = smooth_sc[counter]
         residual[match_idx] = data[match_idx] - smooth_sc_val
 
-    return residual
+    rec = data - residual
+    rec_ann = smooth_sc
+
+    return rec, residual, rec_ann
 
 
 def calculate_amplification_index2(df, meta, T0, half_width, grouping, fit_data, qs, this_q=0.05):
