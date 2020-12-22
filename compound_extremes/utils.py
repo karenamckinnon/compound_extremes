@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from humidity_variability.utils import add_date_columns, jitter, add_GMT
 from helpful_utilities.meteo import F_to_C
+from helpful_utilities.general import lowpass_butter
 
 
 def fit_seasonal_cycle(doy, data, nbases=5):
@@ -46,6 +47,38 @@ def fit_seasonal_cycle(doy, data, nbases=5):
     rec_ann = np.real(np.dot(np.conj(coeff), bases_ann)) + mu  # add mean value back into climatology
 
     return rec, residual, rec_ann
+
+
+def fit_seasonal_cycle_lowpass(doy, data, cut_freq=1/30):
+    """Estimate the seasonal cycle by using a lowpass filter on the empirical seasonal cycle.
+
+    Parameters
+    ----------
+    doy : numpy.ndarray
+        Day of year for each data value
+    data : numpy.ndarray
+        Data values for seasonal fit
+    cut_freq : float
+        Cutoff frequency (in 1/days) for the lowpass filter
+
+    Returns
+    -------
+    residual : numpy.ndarray
+        The residual from the seasonal fit.
+    """
+
+    tmp_df = pd.DataFrame({'doy': doy, 'data': data})
+    empirical_sc = tmp_df.groupby('doy').mean()
+    ann_doy = empirical_sc.index
+    smooth_sc = lowpass_butter(1, cut_freq, 3, empirical_sc.values.flatten())
+
+    residual = np.empty_like(data)
+    for counter, this_doy in enumerate(ann_doy):
+        match_idx = doy == this_doy
+        smooth_sc_val = smooth_sc[counter]
+        residual[match_idx] = data[match_idx] - smooth_sc_val
+
+    return residual
 
 
 def calculate_amplification_index2(df, meta, T0, half_width, grouping, fit_data, qs, this_q=0.05):
