@@ -117,7 +117,7 @@ if __name__ == '__main__':
             df = df.assign(**{temp_var: F_to_C(jitter(C_to_F(df[temp_var]), 0, 1/10))})
         else:
             # Add a small amount of noise so no temperatures are identical
-            df = df.assign(**{'%s_anom' % temp_var: df['%s_anom' % temp_var] + 1e-8*np.random.randn(len(df))})
+            df = df.assign(**{'%s' % temp_var: df['%s' % temp_var] + 1e-8*np.random.randn(len(df))})
 
         # Fit seasonal cycle with first three harmonics and remove
         _, residual_T, _ = fit_seasonal_cycle(df['doy'], df[temp_var].copy(), nbases=3)
