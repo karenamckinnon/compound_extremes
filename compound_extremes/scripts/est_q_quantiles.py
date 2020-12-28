@@ -109,7 +109,7 @@ if __name__ == '__main__':
 
         # Fit seasonal cycle with first three harmonics and remove
         _, residual_T, _ = fit_seasonal_cycle(df['doy'], df[temp_var].copy(), nbases=3)
-        # Dew point seasonal cycle requires 10 harmonics because rapid uptick in monsoon regions
+        # Humidity seasonal cycle requires 10 harmonics because rapid uptick in monsoon regions
         _, residual_H, _ = fit_seasonal_cycle(df['doy'], df[humidity_var].copy(), nbases=10)
 
         df = df.assign(**{'%s_anom' % humidity_var: residual_H})
