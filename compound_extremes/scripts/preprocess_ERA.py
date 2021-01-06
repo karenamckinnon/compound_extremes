@@ -93,6 +93,8 @@ metadata.to_csv('%s/new_metadata.csv' % datadir)
 
 # Iterate through lats, lons and make dataframes
 for counter in range(len(lats)):
+    if counter % 20 == 0:
+        print(counter)
     this_lat = lats[counter]
     this_lon = lons[counter]
 

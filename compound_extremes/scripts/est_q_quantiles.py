@@ -115,9 +115,6 @@ if __name__ == '__main__':
         if dataname == 'ISD':
             # US data was originally 1/10 F, but converted to C
             df = df.assign(**{temp_var: F_to_C(jitter(C_to_F(df[temp_var]), 0, 1/10))})
-        else:
-            # Add a small amount of noise so no temperatures are identical
-            df = df.assign(**{'%s' % temp_var: df['%s' % temp_var] + 1e-8*np.random.randn(len(df))})
 
         # Fit seasonal cycle with first three harmonics and remove
         _, residual_T, _ = fit_seasonal_cycle(df['doy'], df[temp_var].copy(), nbases=3)
@@ -126,6 +123,10 @@ if __name__ == '__main__':
 
         df = df.assign(**{'%s_anom' % humidity_var: residual_H})
         df = df.assign(**{'%s_anom' % temp_var: residual_T})
+
+        if ((dataname == 'ERA5') | (dataname == 'JRA55')):
+            # Add a small amount of noise so no temperatures are identical
+            df = df.assign(**{'%s_anom' % temp_var: df['%s_anom' % temp_var] + 1e-8*np.random.randn(len(df))})
 
         del residual_T, residual_H
 
