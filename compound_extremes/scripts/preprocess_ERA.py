@@ -4,7 +4,6 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 from glob import glob
-from helpful_utilities.general import lowpass_butter
 import geopandas
 from shapely.geometry import shape
 import geojson
@@ -36,9 +35,9 @@ def subset_to_west(da, lon_range, lat_range, roi):
 era_version = '5'
 
 if era_version == '5':
-    f_Td = '/glade/work/mckinnon/ERA5/day/Td/ERA5_Td_summer_US.nc'
-    f_T = '/glade/work/mckinnon/ERA5/day/2mT/ERA5_2mT_summer_US.nc'
-    f_p = '/glade/work/mckinnon/ERA5/day/p/ERA5_p_summer_US.nc'
+    f_Td = '/glade/work/mckinnon/ERA5/day/Td/ERA5_Td_US.nc'
+    f_T = '/glade/work/mckinnon/ERA5/day/2mT/ERA5_2mT_US.nc'
+    f_p = '/glade/work/mckinnon/ERA5/day/p/ERA5_p_US.nc'
 
     da_Td = xr.open_dataarray(f_Td)  # K
     da_T = xr.open_dataarray(f_T)  # K
@@ -76,27 +75,10 @@ da_q = 1000*(0.622 * e)/((da_p/100) - (0.378 * e))  # g/kg
 da_T = da_T.resample(time='D').mean()
 da_q = da_q.resample(time='D').mean()
 
-# Drop anything outside of summer
-da_T = da_T.sel(time=(da_T['time.month'] >= 6) & (da_T['time.month'] <= 9))
-da_q = da_q.sel(time=(da_q['time.month'] >= 6) & (da_q['time.month'] <= 9))
-
-# Remove seasonal cycle, smoothed using low pass of 1/30 days
-da_q_SC = da_q.groupby('time.dayofyear').mean('time')
-da_T_SC = da_T.groupby('time.dayofyear').mean('time')
-
-da_q_SC_smooth = lowpass_butter(1, 1/30, 3, da_q_SC.values, axis=0)
-da_q_SC = da_q_SC.copy(data=da_q_SC_smooth)
-
-da_T_SC_smooth = lowpass_butter(1, 1/30, 3, da_T_SC.values, axis=0)
-da_T_SC = da_T_SC.copy(data=da_T_SC_smooth)
-
-da_T_anom = da_T.groupby('time.dayofyear') - da_T_SC
-da_q_anom = da_q.groupby('time.dayofyear') - da_q_SC
-
 # For gridboxes that have data, save in same manner as ISD
 # "station_id" will be lat-lon
-lons, lats = np.meshgrid(da_T_anom.longitude, da_T_anom.latitude)
-has_data = ~np.isnan(da_T_anom[0, :, :])
+lons, lats = np.meshgrid(da_T.longitude, da_T.latitude)
+has_data = ~np.isnan(da_T[0, :, :])
 lons = lons[has_data]
 lats = lats[has_data]
 
@@ -111,16 +93,18 @@ metadata.to_csv('%s/new_metadata.csv' % datadir)
 
 # Iterate through lats, lons and make dataframes
 for counter in range(len(lats)):
+    if counter % 20 == 0:
+        print(counter)
     this_lat = lats[counter]
     this_lon = lons[counter]
 
     station_id = '%03.2f%03.2f' % (this_lat, this_lon)
 
-    this_q_ts = da_q_anom.sel(latitude=this_lat, longitude=this_lon)
-    this_T_ts = da_T_anom.sel(latitude=this_lat, longitude=this_lon)
+    this_q_ts = da_q.sel(latitude=this_lat, longitude=this_lon)
+    this_T_ts = da_T.sel(latitude=this_lat, longitude=this_lon)
 
-    this_df = this_q_ts.to_dataframe(name='Q_anom')
-    this_df = this_df.assign(TMP_anom=this_T_ts.values)
+    this_df = this_q_ts.to_dataframe(name='Q')
+    this_df = this_df.assign(TMP=this_T_ts.values)
 
     this_df = this_df.reset_index()
 
@@ -128,7 +112,7 @@ for counter in range(len(lats)):
     this_df = this_df.rename(columns={'time': 'date'})
 
     # drop columns we don't need
-    this_df = this_df.drop(columns=['latitude', 'longitude', 'dayofyear'])
+    this_df = this_df.drop(columns=['latitude', 'longitude'])
 
     # save
     this_df.to_csv('%s/%s.csv' % (datadir, station_id), index=False)

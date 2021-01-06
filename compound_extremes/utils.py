@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from humidity_variability.utils import add_date_columns, jitter, add_GMT
 from helpful_utilities.meteo import F_to_C
+from helpful_utilities.general import lowpass_butter
 
 
 def fit_seasonal_cycle(doy, data, nbases=5):
@@ -46,6 +47,146 @@ def fit_seasonal_cycle(doy, data, nbases=5):
     rec_ann = np.real(np.dot(np.conj(coeff), bases_ann)) + mu  # add mean value back into climatology
 
     return rec, residual, rec_ann
+
+
+def fit_seasonal_cycle_lowpass(doy, data, cut_freq=1/30):
+    """Estimate the seasonal cycle by using a lowpass filter on the empirical seasonal cycle.
+
+    Parameters
+    ----------
+    doy : numpy.ndarray
+        Day of year for each data value
+    data : numpy.ndarray
+        Data values for seasonal fit
+    cut_freq : float
+        Cutoff frequency (in 1/days) for the lowpass filter
+
+    Returns
+    -------
+    rec : numpy.ndarray
+        Reconstructed seasonal structure, of same length as data
+    residual : numpy.ndarray
+        The residual from the seasonal fit.
+    rec_ann : numpy.ndarray
+        The 365-day version of the seasonal cycle
+    """
+
+    tmp_df = pd.DataFrame({'doy': doy, 'data': data})
+    empirical_sc = tmp_df.groupby('doy').mean()
+    ann_doy = empirical_sc.index
+    smooth_sc = lowpass_butter(1, cut_freq, 3, empirical_sc.values.flatten())
+
+    residual = np.empty_like(data)
+    for counter, this_doy in enumerate(ann_doy):
+        match_idx = doy == this_doy
+        smooth_sc_val = smooth_sc[counter]
+        residual[match_idx] = data[match_idx] - smooth_sc_val
+
+    rec = data - residual
+    rec_ann = smooth_sc
+
+    return rec, residual, rec_ann
+
+
+def calculate_amplification_index2(df, meta, T0, half_width, grouping, fit_data, qs, this_q=0.05):
+    """Calculate the fraction of hot days that are dry within a grouping of stations or gridboxes.
+
+    This version accounts for the temperature dependence of q5
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Contains the temperature and humidity anomaly data for all stations/gridboxes and times of interest.
+    meta : pandas.DataFrame
+        Contains (at least) the weights for each station/gridbox, as well as the station_id
+    T0 : float
+        The middle percentile to define hot days
+    half_width : float
+        The half-width around T0 to consider a hot day
+    grouping : string
+        Can be 'month' or 'year': how are hot and hot/dry days grouped?
+    fit_data : string
+        Full path to npz file containing the relevant parameters from the quantile smoothing spline fit
+    qs : numpy.ndarray
+        The quantiles fit by the QSS model
+    this_q : float
+        The threshold below which to consider a day "dry"
+
+    Returns
+    -------
+    amplification : numpy.ndarray
+        Time series of the amplification index
+
+    """
+
+    # names of temperature and humidity variables
+    humidity_var = 'Q'
+    temp_var = 'TMP'
+    # For each station or gridbox, map temperatures to percentiles
+
+    # Load fitted QR model
+    df_fit = np.load(fit_data)
+    q_quantiles = df_fit['s0_H'][:, qs == this_q, :].squeeze()
+    temperature_percentiles = df_fit['temperature_percentiles']
+    lat_vec = np.round(df_fit['lats'], decimals=3)
+    lon_vec = np.round(df_fit['lons'], decimals=3)
+
+    # Calculate percentiles at each station of temperature
+    df.loc[:, '%s_perc' % temp_var] = df.groupby('station_id')['%s_anom' % temp_var].rank(pct=True)
+
+    # Get humidity threshold for each temperature at each station
+    df_updated = []
+    for this_station in np.unique(df['station_id']):
+        tmp_df = df.loc[df['station_id'] == this_station].reset_index()
+        this_lat = np.round(tmp_df['lat'][0], decimals=3)
+        this_lon = np.round(tmp_df['lon'][0], decimals=3)
+        match_idx = (lat_vec == this_lat) & (lon_vec == this_lon)
+        this_quantile = q_quantiles[:, match_idx].squeeze()
+        # Interpolate
+        this_quantile_interp = np.interp(tmp_df['%s_perc' % temp_var],
+                                         temperature_percentiles/100,
+                                         this_quantile)
+        tmp_df.loc[:, '%s_cut' % humidity_var] = this_quantile_interp
+        df_updated.append(tmp_df)
+
+    df = pd.concat(df_updated).reset_index()
+    del df_updated
+    # Drop spare index columns
+    df = df.drop(df.columns[:2], axis='columns')
+
+    # Assign each day a binary index for whether it is hot, and whether it is hot and dry
+    df = df.assign(is_hot=np.nan*np.ones(len(df)))
+    df = df.assign(is_hot_dry=np.nan*np.ones(len(df)))
+    for station in np.unique(df['station_id']):
+        tmp_df = df.loc[df['station_id'] == station]
+
+        is_hot = ((tmp_df['%s_perc' % temp_var] > (T0 - half_width)/100) &
+                  (tmp_df['%s_perc' % temp_var] < (T0 + half_width)/100))
+
+        is_hot_dry = (is_hot &
+                      (tmp_df['%s_anom' % humidity_var] < tmp_df['%s_cut' % humidity_var])).astype(float)
+
+        is_hot = is_hot.astype(float)
+
+        df.loc[df['station_id'] == station, 'is_hot_dry'] = is_hot_dry
+        df.loc[df['station_id'] == station, 'is_hot'] = is_hot
+
+    weights = meta.set_index('station_id')
+    if grouping == 'month':
+        groupby_names = ['year', 'month', 'station_id']
+    elif grouping == 'year':
+        groupby_names = ['year', 'station_id']
+
+    hot_dry_weighted = df.groupby(groupby_names)['is_hot_dry'].sum()*weights['area_weights']
+    hot_weighted = df.groupby(groupby_names)['is_hot'].sum()*weights['area_weights']
+    # Since the amplification index is the ratio of hot, dry to hot, we don't need to normalize the weights
+    # The same number of stations are present in each month/year combo for both metrics, so will cancel out
+    # But note that any analysis of the hot, dry or hot time series alone has not been normalized
+    # appropriately
+    amplification = (hot_dry_weighted.groupby(groupby_names[:-1]).sum() /
+                     hot_weighted.groupby(groupby_names[:-1]).sum())
+
+    return amplification
 
 
 def preprocess_data(this_id, datadir, start_year, end_year, start_month, end_month, offset, spread):
