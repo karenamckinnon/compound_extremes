@@ -59,9 +59,9 @@ The two :code:`est_q*.py` scripts are very similar, but the ISD-based on include
 
 **(2) Running the analysis and making the paper figures**
 
-There are two Jupyter Notebooks in the :code:`notebooks' folder: one to reproduce the figures and calculations in the main text, and the other to reproduce the figures in the supplemental materials. Note that you will need to update the paths at the beginning of the notebook to where you have saved all of the relevant data. 
+There are two Jupyter Notebooks in the :code:`notebooks` folder: one to reproduce the figures and calculations in the main text, and the other to reproduce the figures in the supplemental materials. Note that you will need to update the paths at the beginning of the notebook to where you have saved all of the relevant data. 
 
-Please contact Karen McKinnon (kmckinnon@ucla.edu) with any questions, or if you are using the code/methods in your work. 
+Please contact Karen McKinnon (kmckinnon@ucla.edu) with any questions, or if you are using the code/methods in your work.
 
 Credits
 -------
